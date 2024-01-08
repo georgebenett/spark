@@ -44,6 +44,9 @@
 #include "peer_manager.h"
 #include "peer_manager_handler.h"
 #include "nrf_saadc.h"
+#include "nrfx_saadc.h"
+#include "nrf_drv_saadc.h"
+#include "nrf_gpio.h"
 
 #if defined (UART_PRESENT)
 #include "nrf_uart.h"
@@ -58,18 +61,6 @@
 #include "datatypes.h"
 #include "esb_timeslot.h"
 #include "crc.h"
-
-#ifndef MODULE_BUILTIN
-#define MODULE_BUILTIN					0
-#endif
-
-#ifndef MODULE_RD2
-#define MODULE_RD2						0
-#endif
-
-#ifndef MODULE_RD_BMS
-#define MODULE_RD_BMS					1
-#endif
 
 #define USE_SLEEP						0
 #define USE_USB							0
@@ -122,6 +113,7 @@ static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #define EN_DEFAULT						1
 #define LED_PIN							8
 
+#define ANALOG_INPUT_PIN NRF_GPIO_PIN_MAP(0, 30)
 
 // Alternative inverted LED pin
 #ifdef LED_PIN2_INV
@@ -279,6 +271,23 @@ static void nrf_qwr_error_handler(uint32_t nrf_error) {
 	APP_ERROR_HANDLER(nrf_error);
 }
 
+void saadc_callback(nrf_drv_saadc_evt_t const * p_event) {
+    // Handle the SAADC event here
+}
+
+void saadc_init(void) {
+    ret_code_t err_code;
+
+    nrf_saadc_channel_config_t channel_config =
+        NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(ANALOG_INPUT_PIN);
+
+    err_code = nrf_drv_saadc_init(NULL, saadc_callback);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = nrf_drv_saadc_channel_init(0, &channel_config);
+    APP_ERROR_CHECK(err_code);
+}
+
 static void nus_data_handler(ble_nus_evt_t * p_evt) {
 	if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
@@ -287,10 +296,22 @@ static void nus_data_handler(ble_nus_evt_t * p_evt) {
 
         // Check if the received data is a character
         if (length == 1)
-        {
-            	// Send "Hello" using ble_nus_data_send
-			char* str = "Hello";
-			uint16_t str_length = strlen(str);
+          {
+
+            nrf_saadc_value_t value;
+            ret_code_t err_code = nrf_drv_saadc_sample_convert(0, &value);
+            APP_ERROR_CHECK(err_code);
+
+            // Convert the analog value to a string
+            char value_str[10];
+            sprintf(value_str, "%d", value);
+
+            // Concatenate the "Hello" string and the value string
+            char str[20] = "Hello ";
+            strcat(str, value_str);
+
+            // Send the concatenated string using ble_nus_data_send
+            uint16_t str_length = strlen(str);
             ble_nus_data_send(&m_nus, (uint8_t*)str, &str_length, m_conn_handle);
         }
     }
