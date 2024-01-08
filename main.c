@@ -280,11 +280,20 @@ static void nrf_qwr_error_handler(uint32_t nrf_error) {
 }
 
 static void nus_data_handler(ble_nus_evt_t * p_evt) {
-	if (p_evt->type == BLE_NUS_EVT_RX_DATA) {
-		for (uint32_t i = 0; i < p_evt->params.rx_data.length; i++) {
-			packet_process_byte(p_evt->params.rx_data.p_data[i], PACKET_BLE);
-		}
-	}
+	if (p_evt->type == BLE_NUS_EVT_RX_DATA)
+    {
+        uint8_t * p_data = (uint8_t *)p_evt->params.rx_data.p_data;
+        uint16_t length = p_evt->params.rx_data.length;
+
+        // Check if the received data is a character
+        if (length == 1)
+        {
+            	// Send "Hello" using ble_nus_data_send
+			char* str = "Hello";
+			uint16_t str_length = strlen(str);
+            ble_nus_data_send(&m_nus, (uint8_t*)str, &str_length, m_conn_handle);
+        }
+    }
 }
 
 static void services_init(void) {
