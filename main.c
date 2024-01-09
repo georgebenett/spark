@@ -28,8 +28,6 @@
 #include "nrf_ble_lesc.h"
 #include "peer_manager.h"
 #include "peer_manager_handler.h"
-#include "nrf_saadc.h"
-#include "nrfx_saadc.h"
 #include "nrf_drv_saadc.h"
 #include "nrf_gpio.h"
 
@@ -444,7 +442,7 @@ void uart_event_handle(app_uart_evt_t * p_event) {
 	case APP_UART_DATA_READY: {
 //		uint8_t byte;
 //		while (app_uart_get(&byte) == NRF_SUCCESS) {
-//			packet_process_byte(byte, PACKET_VESC);
+//			process packet here
 //		}
 	} break;
 
@@ -536,18 +534,6 @@ static void set_enabled(bool en) {
 	}
 }
 
-void rfhelp_send_data_crc(uint8_t *data, unsigned int len) {
-	uint8_t buffer[len + 2];
-	unsigned short crc = crc16((unsigned char*)data, len);
-	memcpy(buffer, data, len);
-	buffer[len] = (char)(crc >> 8);
-	buffer[len + 1] = (char)(crc & 0xFF);
-	esb_timeslot_set_next_packet(buffer, len + 2);
-}
-
-void cdc_printf(const char* format, ...) {
-	(void)format;
-}
 
 static void esb_timeslot_data_handler(void *p_data, uint16_t length) {
 	if (m_other_comm_disable_time == 0) {
@@ -589,8 +575,6 @@ static void nrf_timer_handler(void *p_context) {
 
 		CRITICAL_REGION_EXIT();
 	}
-
-	cdc_printf("Test\r\n");
 
 	// Reload watchdog
 	NRF_WDT->RR[0] = WDT_RR_RR_Reload;
