@@ -294,7 +294,7 @@ static void nus_data_handler(ble_nus_evt_t * p_evt) {
         uint8_t * p_data = (uint8_t *)p_evt->params.rx_data.p_data;
         uint16_t length = p_evt->params.rx_data.length;
 
-        // Check if the received data is a character
+        // Check if the received data is one character
         if (length == 1)
           {
 
@@ -303,14 +303,10 @@ static void nus_data_handler(ble_nus_evt_t * p_evt) {
             APP_ERROR_CHECK(err_code);
 
             // Convert the analog value to a string
-            char value_str[10];
-            sprintf(value_str, "%d", value);
+            char str[10];
+            sprintf(str, "%d", value);
 
-            // Concatenate the "Hello" string and the value string
-            char str[20] = "Hello ";
-            strcat(str, value_str);
-
-            // Send the concatenated string using ble_nus_data_send
+            // Send the string using ble_nus_data_send
             uint16_t str_length = strlen(str);
             ble_nus_data_send(&m_nus, (uint8_t*)str, &str_length, m_conn_handle);
         }
