@@ -86,9 +86,6 @@ static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #define UART_RX_BUF_SIZE                8192
 
 
-#define PACKET_VESC						0
-#define PACKET_BLE						1
-
 #define LED_ON()						nrf_gpio_pin_set(LED_PIN)
 #define LED_OFF()						nrf_gpio_pin_clear(LED_PIN)
 
@@ -109,7 +106,7 @@ static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #endif
 
 // Private variables
-APP_TIMER_DEF(m_packet_timer);
+
 APP_TIMER_DEF(m_nrf_timer);
 
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
@@ -276,7 +273,6 @@ void saadc_init(void) {
 static void nus_data_handler(ble_nus_evt_t * p_evt) {
 	if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
-        uint8_t * p_data = (uint8_t *)p_evt->params.rx_data.p_data;
         uint16_t length = p_evt->params.rx_data.length;
 
         // Check if the received data is one character
@@ -540,12 +536,6 @@ static void set_enabled(bool en) {
 	}
 }
 
-static void uart_send_buffer(unsigned char *data, unsigned int len) {
-	for (int i = 0;i < len;i++) {
-		app_uart_put(data[i]);
-	}
-}
-
 void rfhelp_send_data_crc(uint8_t *data, unsigned int len) {
 	uint8_t buffer[len + 2];
 	unsigned short crc = crc16((unsigned char*)data, len);
@@ -553,108 +543,6 @@ void rfhelp_send_data_crc(uint8_t *data, unsigned int len) {
 	buffer[len] = (char)(crc >> 8);
 	buffer[len + 1] = (char)(crc & 0xFF);
 	esb_timeslot_set_next_packet(buffer, len + 2);
-}
-
-static void ble_send_buffer(unsigned char *data, unsigned int len) {
-	if (m_conn_handle != BLE_CONN_HANDLE_INVALID) {
-		uint32_t err_code = NRF_SUCCESS;
-		int ind = 0;
-
-		while (len > 0) {
-			if (m_conn_handle == BLE_CONN_HANDLE_INVALID ||
-					(err_code != NRF_ERROR_BUSY && err_code != NRF_SUCCESS && err_code != NRF_ERROR_RESOURCES)) {
-				break;
-			}
-
-			uint16_t max_len = m_ble_nus_max_data_len;
-			uint16_t tmp_len = len > max_len ? max_len : len;
-			err_code = ble_nus_data_send(&m_nus, data + ind, &tmp_len, m_conn_handle);
-
-			if (err_code != NRF_ERROR_RESOURCES && err_code != NRF_ERROR_BUSY) {
-				len -= tmp_len;
-				ind += tmp_len;
-			}
-		}
-	}
-}
-
-static void process_packet_ble(unsigned char *data, unsigned int len) {
-	if (data[0] == COMM_ERASE_NEW_APP ||
-			data[0] == COMM_WRITE_NEW_APP_DATA ||
-			data[0] == COMM_ERASE_NEW_APP_ALL_CAN ||
-			data[0] == COMM_WRITE_NEW_APP_DATA_ALL_CAN) {
-		m_other_comm_disable_time = 5000;
-	}
-
-	m_no_sleep_cnt = 20;
-
-	CRITICAL_REGION_ENTER();
-	packet_send_packet(data, len, PACKET_VESC);
-	CRITICAL_REGION_EXIT();
-}
-
-static void process_packet_vesc(unsigned char *data, unsigned int len) {
-	if (data[0] == COMM_EXT_NRF_ESB_SET_CH_ADDR) {
-		esb_timeslot_set_ch_addr(data[1], data[2], data[3], data[4]);
-	} else if (data[0] == COMM_EXT_NRF_ESB_SEND_DATA) {
-		rfhelp_send_data_crc(data + 1, len - 1);
-	} else if (data[0] == COMM_EXT_NRF_SET_ENABLED) {
-		set_enabled(data[1]);
-	} else if (data[0] == COMM_SET_BLE_NAME) {
-		if (len > 3 && len <= 30) {
-			memcpy(m_config.name, data + 1, len - 1);
-			m_config.name[len] = '\0';
-			m_config.name_set = 1;
-			m_reset_timer = 3000;
-		} else {
-			if (m_config.name_set) {
-				m_reset_timer = 3000;
-			}
-
-			m_config.name_set = 0;
-		}
-		storage_save_config();
-	} else if (data[0] == COMM_SET_BLE_PIN) {
-		if (len >= 7 &&
-				data[1] >= '0' && data[1] <= '9' &&
-				data[2] >= '0' && data[2] <= '9' &&
-				data[3] >= '0' && data[3] <= '9' &&
-				data[4] >= '0' && data[4] <= '9' &&
-				data[5] >= '0' && data[5] <= '9' &&
-				data[6] >= '0' && data[6] <= '9') {
-			memcpy(m_config.pin, data + 1, 6);
-			m_config.pin[7] = '\0';
-			m_config.pin_set = 1;
-			m_reset_timer = 3000;
-		} else {
-			if (m_config.pin_set) {
-				pm_peers_delete();
-				m_reset_timer = 3000;
-			}
-
-			m_config.pin_set = 0;
-		}
-		storage_save_config();
-	} else {
-		if (m_is_enabled) {
-			packet_send_packet(data, len, PACKET_BLE);
-		}
-	}
-}
-
-void ble_printf(const char* format, ...) {
-	va_list arg;
-	va_start (arg, format);
-	int len;
-	static char print_buffer[255];
-
-	print_buffer[0] = COMM_PRINT;
-	len = vsnprintf(print_buffer + 1, 254, format, arg);
-	va_end (arg);
-
-	if(len > 0) {
-		packet_send_packet((unsigned char*)print_buffer, (len < 254) ? len + 1 : 255, PACKET_BLE);
-	}
 }
 
 void cdc_printf(const char* format, ...) {
@@ -667,29 +555,11 @@ static void esb_timeslot_data_handler(void *p_data, uint16_t length) {
 		buffer[0] = COMM_EXT_NRF_ESB_RX_DATA;
 		memcpy(buffer + 1, p_data, length);
 		CRITICAL_REGION_ENTER();
-		packet_send_packet(buffer, length + 1, PACKET_VESC);
+
 		CRITICAL_REGION_EXIT();
 	}
 
 	m_no_sleep_cnt = 20;
-}
-
-static void packet_timer_handler(void *p_context) {
-	(void)p_context;
-	packet_timerfunc();
-
-	if (m_reset_timer > 0) {
-		m_reset_timer--;
-		if (m_reset_timer == 0) {
-			NVIC_SystemReset();
-		}
-	}
-
-	CRITICAL_REGION_ENTER();
-	if (m_other_comm_disable_time > 0) {
-		m_other_comm_disable_time--;
-	}
-	CRITICAL_REGION_EXIT();
 }
 
 static void nrf_timer_handler(void *p_context) {
@@ -716,7 +586,7 @@ static void nrf_timer_handler(void *p_context) {
 		buffer[0] = COMM_EXT_NRF_PRESENT;
 		buffer[1] = 3; // Indicate name and pin code update is supported
 		CRITICAL_REGION_ENTER();
-		packet_send_packet(buffer, 2, PACKET_VESC);
+
 		CRITICAL_REGION_EXIT();
 	}
 
@@ -803,11 +673,6 @@ int main(void) {
 
 	(void)set_enabled;
 
-	packet_init(uart_send_buffer, process_packet_vesc, PACKET_VESC);
-	packet_init(ble_send_buffer, process_packet_ble, PACKET_BLE);
-
-	app_timer_create(&m_packet_timer, APP_TIMER_MODE_REPEATED, packet_timer_handler);
-	app_timer_start(m_packet_timer, APP_TIMER_TICKS(1), NULL);
 
 	app_timer_create(&m_nrf_timer, APP_TIMER_MODE_SINGLE_SHOT, nrf_timer_handler);
 	app_timer_start(m_nrf_timer, APP_TIMER_TICKS(1200), NULL);
@@ -822,13 +687,12 @@ int main(void) {
 		if (m_uart_error) {
 			app_uart_close();
 			uart_init();
-			packet_reset(PACKET_VESC);
 			m_uart_error = false;
 		}
 
 		uint8_t byte;
 		while (app_uart_get(&byte) == NRF_SUCCESS) {
-			packet_process_byte(byte, PACKET_VESC);
+
 		}
 
 		// https://devzone.nordicsemi.com/f/nordic-q-a/15243/high-power-consumption-when-using-fpu
