@@ -87,8 +87,8 @@ static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #define LED_ON()						nrf_gpio_pin_set(LED_PIN)
 #define LED_OFF()						nrf_gpio_pin_clear(LED_PIN)
 
-#define UART_RX							7
-#define UART_TX							6
+#define UART_RX							23
+#define UART_TX							22
 #define UART_TX_DISABLED				25
 #define EN_DEFAULT						1
 #define LED_PIN							8
@@ -106,6 +106,7 @@ static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 // Private variables
 
 APP_TIMER_DEF(m_nrf_timer);
+APP_TIMER_DEF(m_saadc_timer_id);
 
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
 NRF_BLE_GATT_DEF(m_gatt);                                                           /**< GATT module instance. */
@@ -128,8 +129,8 @@ static volatile int m_reset_timer = 0;
 
 app_uart_comm_params_t m_uart_comm_params =
 {
-		.tx_pin_no = NRF_GPIO_PIN_MAP(0, 5),
-		.rx_pin_no = NRF_GPIO_PIN_MAP(0, 4),
+		.tx_pin_no = NRF_GPIO_PIN_MAP(0, 22),
+		.rx_pin_no = NRF_GPIO_PIN_MAP(0, 23),
 		.rts_pin_no   = 0,
 		.cts_pin_no   = 0,
 		.flow_control = APP_UART_FLOW_CONTROL_DISABLED,
@@ -194,6 +195,19 @@ static void pm_evt_handler(pm_evt_t const * p_evt) {
 	default:
 		break;
 	}
+}
+static void saadc_timer_handler(void * p_context) {
+    nrf_saadc_value_t value;
+    ret_code_t err_code = nrf_drv_saadc_sample_convert(0, &value);
+    APP_ERROR_CHECK(err_code);
+
+    // Convert the analog value to a string
+    char str[10];
+    sprintf(str, "%d", value);
+
+    // Send the string using ble_nus_data_send
+    uint16_t str_length = strlen(str);
+    ble_nus_data_send(&m_nus, (uint8_t*)str, &str_length, m_conn_handle);
 }
 
 /**@brief Function for assert macro callback.
@@ -268,26 +282,24 @@ void saadc_init(void) {
     APP_ERROR_CHECK(err_code);
 }
 
+void timers_init(void) {
+    ret_code_t err_code = app_timer_create(&m_saadc_timer_id, APP_TIMER_MODE_REPEATED, saadc_timer_handler);
+    APP_ERROR_CHECK(err_code);
+}
+
+
+
 static void nus_data_handler(ble_nus_evt_t * p_evt) {
-	if (p_evt->type == BLE_NUS_EVT_RX_DATA)
+    if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
         uint16_t length = p_evt->params.rx_data.length;
 
         // Check if the received data is one character
         if (length == 1)
-          {
-
-            nrf_saadc_value_t value;
-            ret_code_t err_code = nrf_drv_saadc_sample_convert(0, &value);
+        {
+            // Start the SAADC timer
+            ret_code_t err_code = app_timer_start(m_saadc_timer_id, APP_TIMER_TICKS(1000), NULL);  // 1000 ms timer
             APP_ERROR_CHECK(err_code);
-
-            // Convert the analog value to a string
-            char str[10];
-            sprintf(str, "%d", value);
-
-            // Send the string using ble_nus_data_send
-            uint16_t str_length = strlen(str);
-            ble_nus_data_send(&m_nus, (uint8_t*)str, &str_length, m_conn_handle);
         }
     }
 }
@@ -567,15 +579,6 @@ static void nrf_timer_handler(void *p_context) {
 	app_timer_start(m_nrf_timer, APP_TIMER_TICKS(1000), NULL);
 #endif
 
-	if (m_other_comm_disable_time == 0) {
-		uint8_t buffer[2];
-		buffer[0] = COMM_EXT_NRF_PRESENT;
-		buffer[1] = 3; // Indicate name and pin code update is supported
-		CRITICAL_REGION_ENTER();
-
-		CRITICAL_REGION_EXIT();
-	}
-
 	// Reload watchdog
 	NRF_WDT->RR[0] = WDT_RR_RR_Reload;
 }
@@ -651,6 +654,8 @@ int main(void) {
 	advertising_init();
 	conn_params_init();
 
+
+
 	if (m_config.pin_set) {
 		peer_manager_init();
 	}
@@ -665,6 +670,18 @@ int main(void) {
 	esb_timeslot_sd_start();
 
 	start_advertising();
+
+	// Write "hello" on the UART
+	const char* message = "hello";
+	size_t message_length = strlen(message);
+	for (size_t i = 0; i < message_length; i++) {
+		while (app_uart_put(message[i]) != NRF_SUCCESS) {
+			// Handle UART transmission error
+			// For example, close and reinitialize UART
+			app_uart_close();
+			uart_init();
+		}
+	}
 
 	for (;;) {
 

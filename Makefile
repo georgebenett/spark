@@ -1,14 +1,10 @@
-# Compile for NRF52832, otherwise for NRF52840
-IS_52832 ?= 0
+
 
 PROJECT_NAME     := vesc_ble_uart
 OUTPUT_DIRECTORY := _build
 
-ifeq ($(IS_52832),1)
-TARGETS          := nrf52832_xxaa
-else
 TARGETS          := nrf52840_xxaa
-endif
+
 
 # So that eclipse can use the build output for indexing.
 VERBOSE=1
@@ -16,24 +12,14 @@ VERBOSE=1
 CFLAGS += $(build_args)
 
 # Path to the NRF52 SDK. Change if needed.
-SDK_ROOT := /home/george/myrepo/nrf52_vesc/DeviceDownload/nRF5_SDK_15.3.0_59ac345
+SDK_ROOT := /home/george/Documents/DeviceDownload/nRF5_SDK_15.3.0_59ac345
 
 TARGET_PATH := $(OUTPUT_DIRECTORY)/$(TARGETS).hex
 
-ifeq ($(IS_52832),1)
-$(OUTPUT_DIRECTORY)/$(TARGETS).out: LINKER_SCRIPT := ld_sd_52832.ld
-SD_PATH := $(SDK_ROOT)/components/softdevice/s132/hex/s132_nrf52_6.1.1_softdevice.hex
-else
 $(OUTPUT_DIRECTORY)/$(TARGETS).out: LINKER_SCRIPT := ld_sd_52840.ld
 SD_PATH := $(SDK_ROOT)/components/softdevice/s140/hex/s140_nrf52_6.1.1_softdevice.hex
-endif
 
-# Source files
-ifeq ($(IS_52832),1)
-SRC_FILES += \
-  $(SDK_ROOT)/modules/nrfx/mdk/gcc_startup_nrf52.S \
-  $(SDK_ROOT)/modules/nrfx/mdk/system_nrf52.c
-else
+
 SRC_FILES += \
   $(SDK_ROOT)/modules/nrfx/mdk/gcc_startup_nrf52840.S \
   $(SDK_ROOT)/modules/nrfx/mdk/system_nrf52840.c \
@@ -43,7 +29,6 @@ SRC_FILES += \
   $(SDK_ROOT)/components/libraries/usbd/app_usbd_core.c \
   $(SDK_ROOT)/components/libraries/usbd/app_usbd_serial_num.c \
   $(SDK_ROOT)/components/libraries/usbd/app_usbd_string_desc.c
-endif
 
 SRC_FILES += \
   $(SDK_ROOT)/components/libraries/log/src/nrf_log_backend_rtt.c \
@@ -315,15 +300,10 @@ OPT = -O3 -g3
 
 # C flags common to all targets
 CFLAGS += $(OPT)
-ifeq ($(IS_52832),1)
-CFLAGS += -DBOARD_PCA10028
-CFLAGS += -DS130
-CFLAGS += -DNRF52832_XXAA
-else
+
 CFLAGS += -DBOARD_PCA10056
 CFLAGS += -DS140
 CFLAGS += -DNRF52840_XXAA
-endif
 CFLAGS += -DCONFIG_GPIO_AS_PINRESET
 CFLAGS += -DFLOAT_ABI_HARD
 CFLAGS += -DNRF_APP_VERSION=0x00000001
@@ -345,15 +325,10 @@ CFLAGS += -std=gnu99 -D_GNU_SOURCE
 CXXFLAGS += $(OPT)
 
 # Assembler flags common to all targets
-ifeq ($(IS_52832),1)
-ASMFLAGS += -DBOARD_PCA10028
-ASMFLAGS += -DS130
-ASMFLAGS += -DNRF52832_XXAA
-else
+
 ASMFLAGS += -DBOARD_PCA10056
 ASMFLAGS += -DS140
 ASMFLAGS += -DNRF52840_XXAA
-endif
 ASMFLAGS += -g3
 ASMFLAGS += -mcpu=cortex-m4
 ASMFLAGS += -mthumb -mabi=aapcs
