@@ -93,7 +93,7 @@ static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #define EN_DEFAULT						1
 #define LED_PIN							8
 
-#define ANALOG_INPUT_PIN NRF_GPIO_PIN_MAP(0, 30)
+#define ANALOG_INPUT_PIN 				NRF_GPIO_PIN_MAP(0, 30)
 
 // Alternative inverted LED pin
 #ifdef LED_PIN2_INV
@@ -106,7 +106,6 @@ static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 // Private variables
 
 APP_TIMER_DEF(m_nrf_timer);
-APP_TIMER_DEF(m_saadc_timer_id);
 
 BLE_NUS_DEF(m_nus, NRF_SDH_BLE_TOTAL_LINK_COUNT);                                   /**< BLE NUS service instance. */
 NRF_BLE_GATT_DEF(m_gatt);                                                           /**< GATT module instance. */
@@ -196,19 +195,6 @@ static void pm_evt_handler(pm_evt_t const * p_evt) {
 		break;
 	}
 }
-static void saadc_timer_handler(void * p_context) {
-    nrf_saadc_value_t value;
-    ret_code_t err_code = nrf_drv_saadc_sample_convert(0, &value);
-    APP_ERROR_CHECK(err_code);
-
-    // Convert the analog value to a string
-    char str[10];
-    sprintf(str, "%d", value);
-
-    // Send the string using ble_nus_data_send
-    uint16_t str_length = strlen(str);
-    ble_nus_data_send(&m_nus, (uint8_t*)str, &str_length, m_conn_handle);
-}
 
 /**@brief Function for assert macro callback.
  *
@@ -265,29 +251,16 @@ static void nrf_qwr_error_handler(uint32_t nrf_error) {
 	APP_ERROR_HANDLER(nrf_error);
 }
 
-void saadc_callback(nrf_drv_saadc_evt_t const * p_event) {
-    // Handle the SAADC event here
-}
 
 void saadc_init(void) {
     ret_code_t err_code;
 
     nrf_saadc_channel_config_t channel_config =
-        NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(ANALOG_INPUT_PIN);
-
-    err_code = nrf_drv_saadc_init(NULL, saadc_callback);
-    APP_ERROR_CHECK(err_code);
+    NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(ANALOG_INPUT_PIN);
 
     err_code = nrf_drv_saadc_channel_init(0, &channel_config);
     APP_ERROR_CHECK(err_code);
 }
-
-void timers_init(void) {
-    ret_code_t err_code = app_timer_create(&m_saadc_timer_id, APP_TIMER_MODE_REPEATED, saadc_timer_handler);
-    APP_ERROR_CHECK(err_code);
-}
-
-
 
 static void nus_data_handler(ble_nus_evt_t * p_evt) {
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
@@ -296,10 +269,17 @@ static void nus_data_handler(ble_nus_evt_t * p_evt) {
 
         // Check if the received data is one character
         if (length == 1)
-        {
-            // Start the SAADC timer
-            ret_code_t err_code = app_timer_start(m_saadc_timer_id, APP_TIMER_TICKS(1000), NULL);  // 1000 ms timer
+       {
+            nrf_saadc_value_t value;
+            ret_code_t err_code = nrf_drv_saadc_sample_convert(0, &value);
             APP_ERROR_CHECK(err_code);
+			nrf_drv_saadc_uninit();
+
+            // Convert the analog value to a string
+            char str[10];
+            sprintf(str, "%d", value);
+            uint16_t str_length = strlen(str);
+            ble_nus_data_send(&m_nus, (uint8_t*)str, &str_length, m_conn_handle);
         }
     }
 }
@@ -459,11 +439,11 @@ void uart_event_handle(app_uart_evt_t * p_event) {
 	} break;
 
 	case APP_UART_COMMUNICATION_ERROR:
-//		m_uart_error = true;
+		m_uart_error = true;
 		break;
 
 	case APP_UART_FIFO_ERROR:
-//		m_uart_error = true;
+		m_uart_error = true;
 		break;
 
 	default:
@@ -672,7 +652,7 @@ int main(void) {
 	start_advertising();
 
 	// Write "hello" on the UART
-	const char* message = "hello";
+	const char* message = "iniciated\r\n";
 	size_t message_length = strlen(message);
 	for (size_t i = 0; i < message_length; i++) {
 		while (app_uart_put(message[i]) != NRF_SUCCESS) {
@@ -685,11 +665,26 @@ int main(void) {
 
 	for (;;) {
 
-		if (m_uart_error) {
+		/*if (!m_uart_error){
+			nrf_saadc_value_t value;
+            ret_code_t err_code = nrf_drv_saadc_sample_convert(0, &value);
+            APP_ERROR_CHECK(err_code);
+
+            // Convert the analog value to a string
+            char str[10];
+            sprintf(str, "%d\r\n", value);
+            uint16_t str_length = strlen(str);
+			for (size_t i = 0; i < str_length; i++) {
+		while (app_uart_put(str[i]) != NRF_SUCCESS) {
+			// Handle UART transmission error
+			// For example, close and reinitialize UART
 			app_uart_close();
 			uart_init();
-			m_uart_error = false;
+			nrf_drv_saadc_uninit();
+			}
 		}
+	}*/
+
 
 		uint8_t byte;
 		while (app_uart_get(&byte) == NRF_SUCCESS) {
