@@ -30,15 +30,8 @@
 #include "peer_manager_handler.h"
 #include "nrf_drv_saadc.h"
 #include "nrf_gpio.h"
-
-#if defined (UART_PRESENT)
 #include "nrf_uart.h"
-#endif
-#if defined (UARTE_PRESENT)
 #include "nrf_uarte.h"
-#endif
-
-
 #include "packet.h"
 #include "buffer.h"
 #include "datatypes.h"
@@ -84,24 +77,7 @@ static pm_peer_id_t m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 #define UART_RX_BUF_SIZE                8192
 
 
-#define LED_ON()						nrf_gpio_pin_set(LED_PIN)
-#define LED_OFF()						nrf_gpio_pin_clear(LED_PIN)
-
-#define UART_RX							23
-#define UART_TX							22
-#define UART_TX_DISABLED				25
-#define EN_DEFAULT						1
-#define LED_PIN							8
-
 #define ANALOG_INPUT_PIN 				NRF_GPIO_PIN_MAP(0, 30)
-
-// Alternative inverted LED pin
-#ifdef LED_PIN2_INV
-#undef LED_ON
-#undef LED_OFF
-#define LED_ON()						nrf_gpio_pin_set(LED_PIN); nrf_gpio_pin_clear(LED_PIN2_INV)
-#define LED_OFF()						nrf_gpio_pin_clear(LED_PIN); nrf_gpio_pin_set(LED_PIN2_INV)
-#endif
 
 // Private variables
 
@@ -134,20 +110,14 @@ app_uart_comm_params_t m_uart_comm_params =
 		.cts_pin_no   = 0,
 		.flow_control = APP_UART_FLOW_CONTROL_DISABLED,
 		.use_parity   = false,
-#if defined (UART_PRESENT)
-		.baud_rate    = NRF_UART_BAUDRATE_115200
-#else
 		.baud_rate    = NRF_UARTE_BAUDRATE_115200
-#endif
+
 };
 
 // Functions
 void ble_printf(const char* format, ...);
-static void set_enabled(bool en);
 static void start_advertising(void);
-#if USE_SLEEP
-static void go_to_sleep(void);
-#endif
+
 
 static void pm_evt_handler(pm_evt_t const * p_evt) {
 	ret_code_t err_code;
@@ -325,16 +295,7 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt) {
 //		bsp_indication_set(BSP_INDICATE_ADVERTISING);
 		break;
 	case BLE_ADV_EVT_IDLE:
-#if USE_SLEEP
-		if (m_no_sleep_cnt) {
-			m_no_sleep_cnt--;
-			start_advertising();
-		} else {
-			go_to_sleep();
-		}
-#else
 		start_advertising();
-#endif
 		break;
 	default:
 		break;
@@ -348,7 +309,6 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context) {
 
 	switch (p_ble_evt->header.evt_id) {
 	case BLE_GAP_EVT_CONNECTED:
-		LED_ON();
 		m_peer_to_be_deleted = PM_PEER_ID_INVALID;
 		m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
 		nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
@@ -356,7 +316,6 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context) {
 		break;
 
 	case BLE_GAP_EVT_DISCONNECTED:
-		LED_OFF();
 		m_conn_handle = BLE_CONN_HANDLE_INVALID;
 		m_disconnect_cnt = 100;
 		if (m_peer_to_be_deleted != PM_PEER_ID_INVALID) {
@@ -509,24 +468,6 @@ static void advertising_init(void) {
 
 	ble_advertising_conn_cfg_tag_set(&m_advertising, APP_BLE_CONN_CFG_TAG);
 }
-
-static void set_enabled(bool en) {
-	m_is_enabled = en;
-
-	if (m_is_enabled) {
-		app_uart_close();
-		m_uart_comm_params.tx_pin_no = UART_TX;
-		uart_init();
-		nrf_gpio_cfg_default(UART_TX_DISABLED);
-	} else {
-		app_uart_close();
-		m_uart_comm_params.tx_pin_no = UART_TX_DISABLED;
-		uart_init();
-		nrf_gpio_cfg_default(UART_TX);
-	}
-}
-
-
 static void esb_timeslot_data_handler(void *p_data, uint16_t length) {
 	if (m_other_comm_disable_time == 0) {
 		uint8_t buffer[length + 1];
@@ -542,80 +483,12 @@ static void esb_timeslot_data_handler(void *p_data, uint16_t length) {
 
 static void nrf_timer_handler(void *p_context) {
 	(void)p_context;
-
-#if USE_SLEEP
-	// If BLE just disconnected this packet is sent at a higher rate for 10 seconds. The reason
-	// is that the disconnect might have happened because the connected VESC or VESC BMS was
-	// sleeping and didn't respond. This higher rate gives it a change to wake up on UART events
-	// so that the next connect works.
-	// TODO: Maybe this should be handled from VESC Tool by trying for longer?
-	if (m_disconnect_cnt) {
-		m_disconnect_cnt--;
-		app_timer_start(m_nrf_timer, APP_TIMER_TICKS(100), NULL);
-	} else {
-		app_timer_start(m_nrf_timer, APP_TIMER_TICKS(1000), NULL);
-	}
-#else
 	app_timer_start(m_nrf_timer, APP_TIMER_TICKS(1000), NULL);
-#endif
-
 	// Reload watchdog
 	NRF_WDT->RR[0] = WDT_RR_RR_Reload;
 }
 
-#if USE_SLEEP
-static void go_to_sleep(void) {
-	app_uart_close();
-	app_timer_stop_all();
-	esb_timeslot_sd_stop();
-
-	nrf_gpio_cfg_default(LED_PIN);
-	nrf_gpio_cfg_default(UART_RX);
-	nrf_gpio_cfg_default(UART_TX);
-
-#ifdef LED_PIN2_INV
-	nrf_gpio_cfg_default(LED_PIN2_INV);
-#endif
-
-	// Workaround current consumption issue by power cycling the UART peripherals
-	// https://devzone.nordicsemi.com/f/nordic-q-a/42883/current-consumption-when-using-timer-and-scheduler-alongwith-nrf_pwr_mgmt_run/167545#167545
-	*(volatile uint32_t *)0x40002FFC = 0;   // Power down UARTE0
-	*(volatile uint32_t *)0x40002FFC;       //
-	*(volatile uint32_t *)0x40002FFC = 1;   // Power on UARTE0 so it is ready for next time
-
-	*(volatile uint32_t *)0x40028FFC = 0;   // Power down UARTE1
-	*(volatile uint32_t *)0x40028FFC;       //
-	*(volatile uint32_t *)0x40028FFC = 1;   // Power on UARTE1 so it is ready for next time
-
-#ifdef MODULE_RD_BMS
-	nrf_gpio_pin_clear(NRF_GPIO_PIN_MAP(1, 1));
-#endif
-
-	if (nrf_sdh_is_enabled()) {
-		nrf_sdh_disable_request();
-		while (nrf_sdh_is_enabled()) {}
-	}
-
-	// The watchdog will wake up the CPU. Then we reset and start
-	// advertising ble again.
-
-	__set_FPSCR(__get_FPSCR()  & ~(0x0000009F));
-	(void)__get_FPSCR();
-	NVIC_ClearPendingIRQ(FPU_IRQn);
-
-	__SEV();
-	__WFE();
-	__WFE();
-	NVIC_SystemReset();
-}
-#endif
-
 int main(void) {
-	nrf_gpio_cfg_output(LED_PIN);
-
-#ifdef LED_PIN2_INV
-	nrf_gpio_cfg_output(LED_PIN2_INV);
-#endif
 
 	// Watchdog
 	NRF_WDT->CONFIG = (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos) | ( WDT_CONFIG_SLEEP_Run << WDT_CONFIG_SLEEP_Pos);
@@ -640,9 +513,6 @@ int main(void) {
 		peer_manager_init();
 	}
 
-	(void)set_enabled;
-
-
 	app_timer_create(&m_nrf_timer, APP_TIMER_MODE_SINGLE_SHOT, nrf_timer_handler);
 	app_timer_start(m_nrf_timer, APP_TIMER_TICKS(1200), NULL);
 
@@ -664,27 +534,6 @@ int main(void) {
 	}
 
 	for (;;) {
-
-		/*if (!m_uart_error){
-			nrf_saadc_value_t value;
-            ret_code_t err_code = nrf_drv_saadc_sample_convert(0, &value);
-            APP_ERROR_CHECK(err_code);
-
-            // Convert the analog value to a string
-            char str[10];
-            sprintf(str, "%d\r\n", value);
-            uint16_t str_length = strlen(str);
-			for (size_t i = 0; i < str_length; i++) {
-		while (app_uart_put(str[i]) != NRF_SUCCESS) {
-			// Handle UART transmission error
-			// For example, close and reinitialize UART
-			app_uart_close();
-			uart_init();
-			nrf_drv_saadc_uninit();
-			}
-		}
-	}*/
-
 
 		uint8_t byte;
 		while (app_uart_get(&byte) == NRF_SUCCESS) {
