@@ -41,7 +41,7 @@
 #define USE_SLEEP						0
 #define USE_USB							0
 
-#define DEVICE_NAME 					"SPARK"
+#define DEVICE_NAME 					"SPARK "
 
 #define SEC_PARAM_BOND                  1                                           /**< Perform bonding. */
 #define SEC_PARAM_MITM                  1                                           /**< Man In The Middle protection required (applicable when display module is detected). */
