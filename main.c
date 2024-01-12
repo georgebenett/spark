@@ -488,6 +488,13 @@ static void nrf_timer_handler(void *p_context) {
 	NRF_WDT->RR[0] = WDT_RR_RR_Reload;
 }
 
+static void clear_fpu() {
+	// https://devzone.nordicsemi.com/f/nordic-q-a/15243/high-power-consumption-when-using-fpu
+		__set_FPSCR(__get_FPSCR()  & ~(0x0000009F));
+		(void)__get_FPSCR();
+		NVIC_ClearPendingIRQ(FPU_IRQn);
+}
+
 int main(void) {
 
 	// Watchdog
@@ -540,10 +547,7 @@ int main(void) {
 
 		}
 
-		// https://devzone.nordicsemi.com/f/nordic-q-a/15243/high-power-consumption-when-using-fpu
-		__set_FPSCR(__get_FPSCR()  & ~(0x0000009F));
-		(void)__get_FPSCR();
-		NVIC_ClearPendingIRQ(FPU_IRQn);
+		void clear_fpu();
 
 		if (m_config.pin_set) {
 			nrf_ble_lesc_request_handler();
