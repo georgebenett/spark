@@ -547,7 +547,7 @@ int main(void) {
 
 		}
 
-		void clear_fpu();
+		clear_fpu();
 
 		if (m_config.pin_set) {
 			nrf_ble_lesc_request_handler();
