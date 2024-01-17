@@ -513,12 +513,7 @@ int main(void) {
 	services_init();
 	advertising_init();
 	conn_params_init();
-
-
-
-	if (m_config.pin_set) {
-		peer_manager_init();
-	}
+	peer_manager_init();
 
 	app_timer_create(&m_nrf_timer, APP_TIMER_MODE_SINGLE_SHOT, nrf_timer_handler);
 	app_timer_start(m_nrf_timer, APP_TIMER_TICKS(1200), NULL);
@@ -542,17 +537,7 @@ int main(void) {
 
 	for (;;) {
 
-		uint8_t byte;
-		while (app_uart_get(&byte) == NRF_SUCCESS) {
-
-		}
-
 		clear_fpu();
-
-		if (m_config.pin_set) {
-			nrf_ble_lesc_request_handler();
-		}
-
 		sd_app_evt_wait();
 
 		// Reload watchdog
